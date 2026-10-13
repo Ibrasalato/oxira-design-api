@@ -15,7 +15,7 @@ public static class DependencyInjection
         s.Configure<RenderOptions>(cfg.GetSection("Renders"));
         s.Configure<RedesignOptions>(cfg.GetSection("Redesign"));
         s.Configure<PlanAiOptions>(cfg.GetSection("PlanAi"));
-        s.Configure<FormOptions>(cfg.GetSection("Forms"));
+        s.Configure<FormLimitOptions>(cfg.GetSection("Forms"));
         s.Configure<JobOptions>(cfg.GetSection("Jobs"));
         s.AddMediatR(c =>
         {

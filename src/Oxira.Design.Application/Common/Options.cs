@@ -79,7 +79,7 @@ public class PlanAiOptions
 }
 
 /// <summary>"Forms" section: daily limits and models for the smaller forms.</summary>
-public class FormOptions
+public class FormLimitOptions
 {
     public int ListingsPerIp { get; set; } = 5;
     public string ListingModel { get; set; } = "claude-haiku-5-5";
