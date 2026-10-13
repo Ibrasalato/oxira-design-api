@@ -281,3 +281,20 @@ public class OptOutController(ISender mediator, Microsoft.Extensions.Options.IOp
         return new ContentResult { Content = Templates.OptOutPage(ok, site.Value), ContentType = "text/html; charset=utf-8", StatusCode = ok ? 200 : 400 };
     }
 }
+
+public record DevTokenInput(string? Email, string? Role);
+
+/// <summary>Development only: an Oxira account token for trying the account endpoints in Swagger (404 elsewhere).</summary>
+[ApiController, Route("api/dev")]
+public class DevController(IWebHostEnvironment env, Microsoft.Extensions.Options.IOptions<JwtOptions> jwt) : ControllerBase
+{
+    [HttpPost("token")]
+    public IActionResult Token(DevTokenInput body)
+    {
+        if (!env.IsDevelopment()) return NotFound();
+        var email = Oxira.Design.Domain.Text.Email(body.Email);
+        if (email == "") email = "dev@oxira.sa";
+        var role = body.Role is "staff" or "admin" ? body.Role : "customer";
+        return Ok(new { token = DevTokens.Issue(jwt.Value, email, role, TimeSpan.FromHours(8)), email, role });
+    }
+}

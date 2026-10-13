@@ -239,3 +239,18 @@ public class PlatformTests(TestApp app) : IClassFixture<TestApp>
         await anon.InvokeAsync("JoinWallet", "abcdefghijklmnop1234");
     }
 }
+
+public class DevTokenTests(TestApp app) : IClassFixture<TestApp>
+{
+    [Fact]
+    public async Task Dev_token_opens_the_account_in_development()
+    {
+        var (status, body) = await app.Client().PostJson("/api/dev/token", new { email = "Dev@Example.com" });
+        Assert.Equal(HttpStatusCode.OK, status);
+        var c = app.CreateClient();
+        c.DefaultRequestHeaders.Authorization = new("Bearer", body.Str("token"));
+        var (s2, view) = await c.GetJson("/api/account");
+        Assert.Equal(HttpStatusCode.OK, s2);
+        Assert.Equal("dev@example.com", view.Str("email"));
+    }
+}
