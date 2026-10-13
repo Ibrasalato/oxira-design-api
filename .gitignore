@@ -1,0 +1,10 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+TestResults/
+appsettings.Production.json
+*.pfx
+publish/
+App_Data/

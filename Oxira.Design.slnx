@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Oxira.Design.Domain/Oxira.Design.Domain.csproj" />
+    <Project Path="src/Oxira.Design.Application/Oxira.Design.Application.csproj" />
+    <Project Path="src/Oxira.Design.Infrastructure/Oxira.Design.Infrastructure.csproj" />
+    <Project Path="src/Oxira.Design.Api/Oxira.Design.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Oxira.Design.Tests/Oxira.Design.Tests.csproj" />
+  </Folder>
+</Solution>

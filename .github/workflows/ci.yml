@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      sql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Oxira_dev_2026!"
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Oxira_dev_2026!' -Q 'SELECT 1' || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Oxira.Design.slnx
+      - run: dotnet build Oxira.Design.slnx -c Release --no-restore
+      - name: Test (real SQL Server)
+        run: dotnet test Oxira.Design.slnx -c Release --no-build --logger "console;verbosity=normal" --logger GitHubActions
+        env:
+          OXIRA_DESIGN_TEST_DB: "Server=localhost,1433;User Id=sa;Password=Oxira_dev_2026!;TrustServerCertificate=True"
+      - name: Publish for IIS
+        if: github.ref == 'refs/heads/main'
+        run: dotnet publish src/Oxira.Design.Api/Oxira.Design.Api.csproj -c Release -o publish
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: oxira-design-api-iis
+          path: publish
+          retention-days: 30
