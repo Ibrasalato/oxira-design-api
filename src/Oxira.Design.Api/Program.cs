@@ -17,6 +17,8 @@ builder.Services.AddApplication(cfg);
 builder.Services.AddInfrastructure(cfg);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+// opt-out links are signed with Jobs:OptOutSecret, or the shared JWT key when none is set
+builder.Services.PostConfigure<JobOptions>(o => { if (string.IsNullOrEmpty(o.OptOutSecret)) o.OptOutSecret = cfg["Jwt:Key"] ?? ""; });
 builder.Services.AddSingleton<IRealtime, SignalRRealtime>();
 builder.Services.AddHostedService<JobsHost>();
 builder.Services.AddExceptionHandler<ErrorHandler>();

@@ -6,7 +6,12 @@ using Oxira.Design.Api.Infrastructure;
 using Oxira.Design.Application.Common;
 using Microsoft.AspNetCore.Authorization;
 using Oxira.Design.Application.Features.Account;
+using Oxira.Design.Application.Emails;
 using Oxira.Design.Application.Features.Chat;
+using Oxira.Design.Application.Features.Costs;
+using Oxira.Design.Application.Features.Finishing;
+using Oxira.Design.Application.Features.Growth;
+using Oxira.Design.Application.Features.Listings;
 using Oxira.Design.Application.Features.Orders;
 using Oxira.Design.Application.Features.Payments;
 using Oxira.Design.Application.Features.PlanAi;
@@ -217,4 +222,62 @@ public class PublicController(ISender mediator) : ControllerBase
     /// <summary>Oxira Design Pro waitlist: {email, plan, role, lang, country, company_website}.</summary>
     [HttpPost("waitlist"), EnableRateLimiting("forms")]
     public Task<Reply> Waitlist(WaitlistInput body, CancellationToken ct) => mediator.Send(new JoinWaitlistCommand(body), ct);
+}
+
+/// <summary>3D listing tours (/tour/?id=): a draft until the 49 SAR invoice is paid.</summary>
+[ApiController, Route("api/listings")]
+public class ListingsController(ISender mediator) : ControllerBase
+{
+    /// <summary>{title, city, district, price, phone, email, lang, style, plan} → Claude ad copy, draft, Moyasar link: {success, id, payUrl}. reason invalid | plan | limit.</summary>
+    [HttpPost, EnableRateLimiting("forms"), RequestSizeLimit(2 * 1024 * 1024)]
+    public Task<ListingReply> Create(ListingInput body, CancellationToken ct) => mediator.Send(new CreateListingCommand(body), ct);
+
+    /// <summary>The tour page's data (the owner's phone only once the listing is active).</summary>
+    [HttpGet("{id}"), EnableRateLimiting("reads")]
+    public Task<ListingView> Get(string id, CancellationToken ct) => mediator.Send(new GetListingQuery(id), ct);
+}
+
+/// <summary>Finishing-quote requests from the studio (quantities + contact; 3 per IP per day).</summary>
+[ApiController, Route("api/finishing")]
+public class FinishingController(ISender mediator) : ControllerBase
+{
+    [HttpPost, EnableRateLimiting("forms")]
+    public Task<IdReply> Submit(FinishingInput body, CancellationToken ct) => mediator.Send(new FinishingCommand(body), ct);
+}
+
+/// <summary>The build-cost calculator (/cost/).</summary>
+[ApiController, Route("api/costs")]
+public class CostsController(ISender mediator, Microsoft.Extensions.Options.IOptions<SiteOptions> site) : ControllerBase
+{
+    /// <summary>The newest approved rates (the page merges them over its bundled ones). Cached for an hour.</summary>
+    [HttpGet("rates"), EnableRateLimiting("reads")]
+    public async Task<CostRatesReply> Rates(CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "public, max-age=3600";
+        return await mediator.Send(new CostRatesQuery(), ct);
+    }
+
+    /// <summary>Contractor-quote request (5 per IP, 300 per day; company_website is a honeypot).</summary>
+    [HttpPost("quotes"), EnableRateLimiting("forms")]
+    public Task<IdReply> Quote(BuildQuoteInput body, CancellationToken ct) => mediator.Send(new BuildQuoteCommand(body), ct);
+
+    /// <summary>The approval link in the monthly rates email. Returns a small HTML page.</summary>
+    [HttpGet("approve")]
+    public async Task<ContentResult> Approve([FromQuery] string? t, CancellationToken ct)
+    {
+        var ok = await mediator.Send(new ApproveRatesCommand(t ?? ""), ct);
+        return new ContentResult { Content = Templates.ApprovedPage(ok, site.Value), ContentType = "text/html; charset=utf-8", StatusCode = ok ? 200 : 404 };
+    }
+}
+
+/// <summary>The unsubscribe link in follow-up emails. Returns a small HTML page.</summary>
+[ApiController, Route("api/optout")]
+public class OptOutController(ISender mediator, Microsoft.Extensions.Options.IOptions<SiteOptions> site) : ControllerBase
+{
+    [HttpGet]
+    public async Task<ContentResult> OptOut([FromQuery] string? e, [FromQuery] string? t, CancellationToken ct)
+    {
+        var ok = await mediator.Send(new OptOutCommand(e, t), ct);
+        return new ContentResult { Content = Templates.OptOutPage(ok, site.Value), ContentType = "text/html; charset=utf-8", StatusCode = ok ? 200 : 400 };
+    }
 }
