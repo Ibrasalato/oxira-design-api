@@ -31,10 +31,12 @@ public class OrderOptions
     /// <summary>all files of one order together</summary>
     public long MaxFilesBytes { get; set; } = 16 * 1024 * 1024;
     public int MaxFiles { get; set; } = 20;
+    /// <summary>orders per IP address per Riyadh day (each can put 15 MB on disk)</summary>
+    public int PerIpPerDay { get; set; } = 20;
 }
 
 public class OrderHandlers(IAppDbContext db, TimeProvider clock, IEmailSender email, IPayments payments, IFileStore files, IRealtime realtime,
-    IOptions<SiteOptions> site, IOptions<OrderOptions> opt, ILogger<OrderHandlers> log)
+    IQuota quota, ICurrentUser me, IOptions<SiteOptions> site, IOptions<OrderOptions> opt, ILogger<OrderHandlers> log)
     : IRequestHandler<SubmitOrderCommand, OrderReply>, IRequestHandler<GetPaymentQuery, PayReply>, IRequestHandler<MarkOrderPaidCommand, bool>
 {
     public static readonly string[] Extensions = [".dxf", ".dwg", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".heic", ".zip", ".glb"];
@@ -91,6 +93,8 @@ public class OrderHandlers(IAppDbContext db, TimeProvider clock, IEmailSender em
         var kept = i.Files.Where(f => Extensions.Contains(Path.GetExtension(f.Name).ToLowerInvariant()) && f.Content.Length > 0).ToList();
         if (kept.Count > opt.Value.MaxFiles || kept.Sum(f => (long)f.Content.Length) > opt.Value.MaxFilesBytes)
             throw DomainException.TooBig("حجم الملفات كبير جدًا (الحد 15 ميجابايت)");
+
+        if (await quota.TryConsumeAsync($"order:ip:{me.Ip}", opt.Value.PerIpPerDay, ct) == null) throw DomainException.Limit("وصلت للحد اليومي للطلبات، راسلنا على واتساب");
 
         var (note, amount) = Price(pkg, area);
         var now = clock.GetUtcNow();

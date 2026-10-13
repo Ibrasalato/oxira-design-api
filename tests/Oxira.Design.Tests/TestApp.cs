@@ -37,6 +37,8 @@ public class TestApp : WebApplicationFactory<Program>
         b.UseSetting("ConnectionStrings:Design", $"{server};Database={_db}");
         b.UseSetting("Storage:Root", Storage);
         b.UseSetting("Payments:Simulate", "false");
+        // on, as in production: a CF-Connecting-IP header from a non-Cloudflare address must be ignored
+        b.UseSetting("Proxy:TrustCloudflare", "true");
         b.UseSetting("Payments:SecretKey", "sk_test_fake");
         foreach (var k in new[] { "FormsPerMinute", "ChatPerMinute", "RenderPerMinute", "AiPerMinute", "ReadsPerMinute" })
             b.UseSetting($"RateLimit:{k}", "100000");

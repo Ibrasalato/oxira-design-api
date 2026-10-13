@@ -54,10 +54,46 @@ public class HttpCurrentUser(IHttpContextAccessor http, IConfiguration cfg) : IC
         {
             var ctx = http.HttpContext;
             if (ctx == null) return "unknown";
-            if (cfg.GetValue("Proxy:TrustCloudflare", false) && ctx.Request.Headers.TryGetValue("CF-Connecting-IP", out var cf) && !string.IsNullOrWhiteSpace(cf))
-                return cf.ToString()[..Math.Min(cf.ToString().Length, 64)];
-            return ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var remote = ctx.Connection.RemoteIpAddress;
+            // the header is only believed when the connection really comes from Cloudflare (anyone can send it straight to IIS)
+            if (cfg.GetValue("Proxy:TrustCloudflare", false) && Cloudflare.IsEdge(remote, cfg)
+                && ctx.Request.Headers.TryGetValue("CF-Connecting-IP", out var cf) && System.Net.IPAddress.TryParse(cf.ToString().Trim(), out var visitor))
+                return Cloudflare.Normalize(visitor).ToString();
+            return remote == null ? "unknown" : Cloudflare.Normalize(remote).ToString();
         }
+    }
+}
+
+/// <summary>Cloudflare's published edge ranges (https://www.cloudflare.com/ips/); override with Proxy:CloudflareRanges.</summary>
+public static class Cloudflare
+{
+    public static readonly string[] DefaultRanges =
+    [
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20",
+        "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13", "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+        "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+    ];
+
+    private static (string Key, System.Net.IPNetwork[] Nets) _cache = ("", []);
+
+    public static System.Net.IPAddress Normalize(System.Net.IPAddress ip) => ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip;
+
+    public static bool IsEdge(System.Net.IPAddress? remote, IEnumerable<string> ranges)
+    {
+        if (remote == null) return false;
+        var ip = Normalize(remote);
+        return ranges.Select(System.Net.IPNetwork.Parse).Any(n => n.Contains(ip));
+    }
+
+    public static bool IsEdge(System.Net.IPAddress? remote, IConfiguration cfg)
+    {
+        if (remote == null) return false;
+        var ranges = cfg.GetSection("Proxy:CloudflareRanges").Get<string[]>() is { Length: > 0 } r ? r : DefaultRanges;
+        var key = string.Join(",", ranges);
+        var cache = _cache;
+        if (cache.Key != key) _cache = cache = (key, ranges.Select(System.Net.IPNetwork.Parse).ToArray());
+        var ip = Normalize(remote);
+        return cache.Nets.Any(n => n.Contains(ip));
     }
 }
 

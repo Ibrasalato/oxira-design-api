@@ -23,7 +23,7 @@ public record OptOutCommand(string? Email, string? Token) : ICommand<bool>;
 /// <summary>Runs the scheduled jobs that are due now and have not run for their period yet. Returns the keys that ran.</summary>
 public record RunDueJobsCommand : ICommand<List<string>>;
 
-/// <summary>Signed unsubscribe links (HMAC of the address). Links signed by the old n8n workflow (FNV hash) still work.</summary>
+/// <summary>Signed unsubscribe links (HMAC of the address). Links from the old n8n workflow (unsigned FNV hash) work only until Jobs:LegacyOptOutUntil.</summary>
 public static class OptOutLinks
 {
     public static string Sign(string email, string secret)
@@ -42,8 +42,9 @@ public static class OptOutLinks
         return sb.ToString();
     }
 
-    public static bool Verify(string email, string token, string secret) =>
-        CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(Sign(email, secret)), Encoding.UTF8.GetBytes(token)) || token == Legacy(email);
+    /// <param name="allowLegacy">the unsigned n8n hashes are accepted only until Jobs:LegacyOptOutUntil (anyone could compute them)</param>
+    public static bool Verify(string email, string token, string secret, bool allowLegacy) =>
+        CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(Sign(email, secret)), Encoding.UTF8.GetBytes(token)) || (allowLegacy && token == Legacy(email));
 
     public static string Link(SiteOptions site, string email, string secret) =>
         site.Api($"/api/optout?e={Uri.EscapeDataString(email)}&t={Sign(email, secret)}");
@@ -158,10 +159,13 @@ public class GrowthHandlers(IAppDbContext db, TimeProvider clock, IEmailSender e
         return true;
     }
 
+    private bool LegacyAllowed() =>
+        DateOnly.TryParse(jobs.Value.LegacyOptOutUntil, CultureInfo.InvariantCulture, out var until) && Riyadh.Today(clock) <= until;
+
     public async Task<bool> Handle(OptOutCommand cmd, CancellationToken ct)
     {
         var mail = Clip(cmd.Email, 160).ToLowerInvariant();
-        if (mail == "" || string.IsNullOrEmpty(cmd.Token) || !OptOutLinks.Verify(mail, cmd.Token, jobs.Value.OptOutSecret)) return false;
+        if (mail == "" || string.IsNullOrEmpty(cmd.Token) || !OptOutLinks.Verify(mail, cmd.Token, jobs.Value.OptOutSecret, LegacyAllowed())) return false;
         if (!await db.OptOuts.AnyAsync(o => o.Email == mail, ct))
         {
             db.OptOuts.Add(new OptOut { Email = mail, Reason = "link", CreatedAt = clock.GetUtcNow() });

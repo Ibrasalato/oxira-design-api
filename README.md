@@ -26,7 +26,7 @@
 |---|---|---|
 | POST | `/api/chat` | المساعد الذكي: Claude مع أداة `create_lead`، ذاكرة 14 رسالة، 60 رسالة للجلسة و3000 للموقع يوميًا؛ الخادم يرسل إيميل الطلب للفريق |
 | GET | `/api/chat/{sessionId}` | سجل المحادثة |
-| POST | `/api/orders` | طلب تصميم (multipart): الباقة والبيانات والملفات (dxf dwg pdf png jpg webp heic zip glb، حتى 15 ميجابايت). السعر يُحسب في الخادم؛ الباقة السريعة 249 + 15% = 286.35 ريال تُدفع عبر ميسر → `{success, orderId, payUrl?}` |
+| POST | `/api/orders` | طلب تصميم (multipart): الباقة والبيانات والملفات (dxf dwg pdf png jpg webp heic zip glb، حتى 15 ميجابايت؛ 20 طلبًا لكل IP يوميًا). السعر يُحسب في الخادم؛ الباقة السريعة 249 + 15% = 286.35 ريال تُدفع عبر ميسر → `{success, orderId, payUrl?}` |
 | GET | `/api/orders/{id}/payment` | هل دُفع الطلب |
 | POST | `/api/payments/moyasar/callback` | رد ميسر: الفاتورة تُجلب من ميسر للتحقق، ثم تُطبَّق حسب `metadata.kind` (design / redesign / listing) مرة واحدة فقط |
 | POST | `/api/renders` | رندر الاستوديو (OpenAI images edits): 3 مجانًا للزائر يوميًا، 6 لكل IP، 150 للموقع؛ بعدها رصيد من المحفظة، والرصيد يرجع إذا فشل الرندر |
@@ -85,7 +85,7 @@
 - **يوميًا 10:00 الرياض:** متابعة من حفظ مخططًا قبل 2–14 يومًا ولم يطلب، طلب تقييم بعد 3–30 يومًا من التسليم، وإبلاغ المصممين النشطين (bcc) بالطلبات الجديدة بدون مصمم.
 - **الأحد 09:00:** تقرير الأسبوع بالأرقام + نصوص سوشيال لمخطط الأسبوع يكتبها Claude.
 - **يوم 1 من الشهر 09:00:** Claude مع البحث في الويب يقترح أسعار بناء جديدة؛ لا تُقبل حركة أكبر من 35%؛ تُحفظ معلّقة ويصل الفريق إيميل برابط الاعتماد.
-- **رسائل المتابعة:** فيها رابط إيقاف موقّع (HMAC بـ `Jobs:OptOutSecret` أو `Jwt:Key`)، وروابط n8n القديمة تعمل أيضًا.
+- **رسائل المتابعة:** فيها رابط إيقاف موقّع (HMAC بـ `Jobs:OptOutSecret` أو `Jwt:Key`). روابط n8n القديمة غير موقّعة (أي شخص يقدر يحسبها)، لذلك تُقبل فقط حتى `Jobs:LegacyOptOutUntil` (الافتراضي 2026-12-31) ثم تُرفض.
 
 ## الإعدادات (متغيرات البيئة)
 
@@ -104,6 +104,8 @@
 | `Storage__Root` | مجلد ملفات الطلبات (الافتراضي `App_Data/files`)؛ أعطِ Application Pool صلاحية الكتابة |
 | `Jobs__Enabled` | `false` لإيقاف المهام المجدولة (مثلًا على نسخة ثانية) |
 | `Jobs__OptOutSecret` | اختياري: مفتاح توقيع روابط الإيقاف |
+| `Jobs__LegacyOptOutUntil` | آخر يوم تُقبل فيه روابط الإيقاف القديمة من n8n (الافتراضي 2026-12-31) |
+| `Orders__PerIpPerDay` | حد طلبات التصميم (مع ملفاتها) لكل IP يوميًا (الافتراضي 20) |
 
 إعدادات أخرى في `appsettings.json`: النماذج (`Ai:Model`، `Renders:Model`، `Redesign:FreeModel/PaidModel`، `PlanAi:Model`، `Forms:ListingModel`، `Jobs:ResearchModel`)، الحصص اليومية، `Cors:Origins`، `RateLimit:*`، `Proxy:TrustCloudflare`.
 
@@ -127,7 +129,7 @@ dotnet test                                  # يحتاج SQL Server (OXIRA_DESI
 3. **الموقع في IIS:** Site أو Application (مثلًا `api.oxira.sa/design`)، و Application Pool على **No Managed Code**. الملف `web.config` يرفع حد الطلب إلى 26 ميجابايت، ويفعّل WebSockets، ويمرر ردود الأخطاء كما هي.
 4. **متغيرات البيئة:** من الجدول أعلاه، تحت `<environmentVariables>` في `web.config` أو في إعدادات السيرفر.
 5. **قاعدة البيانات:** تُنشأ وتُحدَّث تلقائيًا عند التشغيل. لتطبيقها يدويًا اضبط `Database__MigrateOnStartup=false` واستخدم `db/oxira-design.sql`.
-6. **Cloudflare:** اترك `Proxy:TrustCloudflare=true` ليقرأ عنوان الزائر من `CF-Connecting-IP`.
+6. **Cloudflare:** اترك `Proxy:TrustCloudflare=true` ليقرأ عنوان الزائر من `CF-Connecting-IP`. الترويسة تُصدَّق فقط إذا جاء الاتصال فعلًا من عناوين Cloudflare (`Proxy:CloudflareRanges`، القائمة المنشورة في cloudflare.com/ips)؛ من أي عنوان آخر يُستخدم عنوان الاتصال نفسه، فلا يمكن تجاوز الحدود اليومية بترويسة مزيّفة. حدّث القائمة إذا غيّرتها Cloudflare.
 7. **الموقع:** في مستودع `oxira-design` أضف متغيرات GitHub `PUBLIC_API_URL` (هذا الـ API) و`PUBLIC_AUTH_URL` (oxira-web-api) ثم أعد النشر.
 
 ## Migrations

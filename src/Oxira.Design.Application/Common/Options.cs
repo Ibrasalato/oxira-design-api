@@ -100,4 +100,6 @@ public class JobOptions
     public string CaptionsModel { get; set; } = "claude-sonnet-5";
     /// <summary>signs opt-out links; falls back to Jwt:Key when empty</summary>
     public string OptOutSecret { get; set; } = "";
+    /// <summary>last day (yyyy-MM-dd, Riyadh) the old n8n unsubscribe links are accepted; they are unsigned, so keep this short</summary>
+    public string LegacyOptOutUntil { get; set; } = "2026-12-31";
 }
