@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using Oxira.Design.Application.Common;
 using Oxira.Design.Application.Features.Orders;
+using Oxira.Design.Application.Features.Redesign;
 
 namespace Oxira.Design.Application.Features.Payments;
 
@@ -21,6 +22,7 @@ public class PaymentHandlers(IPayments payments, ISender mediator, ILogger<Payme
         return kind switch
         {
             PaymentKinds.Design => await mediator.Send(new MarkOrderPaidCommand(inv), ct),
+            PaymentKinds.Redesign => await mediator.Send(new CreditPurchaseCommand(inv), ct),
             _ => false,
         };
     }

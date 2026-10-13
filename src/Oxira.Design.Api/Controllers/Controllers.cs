@@ -7,6 +7,9 @@ using Oxira.Design.Application.Common;
 using Oxira.Design.Application.Features.Chat;
 using Oxira.Design.Application.Features.Orders;
 using Oxira.Design.Application.Features.Payments;
+using Oxira.Design.Application.Features.PlanAi;
+using Oxira.Design.Application.Features.Redesign;
+using Oxira.Design.Application.Features.Renders;
 using Oxira.Design.Infrastructure.Services;
 
 namespace Oxira.Design.Api.Controllers;
@@ -81,4 +84,50 @@ public class PaymentsController(ISender mediator) : ControllerBase
         await mediator.Send(new PaymentCallbackCommand(id), ct);
         return Redirect(next);
     }
+}
+
+/// <summary>AI renders of the studio's 3D view (free daily quota, then wallet credits).</summary>
+[ApiController, Route("api/renders")]
+public class RendersController(ISender mediator) : ControllerBase
+{
+    /// <summary>
+    /// {sessionId, image (data URL), style modern|classic|najdi|scandi|luxury, view top|orbit|walk, room, lang, source snapshot|traced, ref?, wallet?}
+    /// → {success, image, remaining, credits, reason invalid|limit|credits|failed}.
+    /// </summary>
+    [HttpPost, EnableRateLimiting("render"), RequestSizeLimit(8 * 1024 * 1024)]
+    public Task<RenderReply> Render(RenderInput body, CancellationToken ct) => mediator.Send(new RenderCommand(body), ct);
+}
+
+/// <summary>"Redesign my room": a photo of a real room in a new style.</summary>
+[ApiController, Route("api/redesign")]
+public class RedesignController(ISender mediator) : ControllerBase
+{
+    /// <summary>{sessionId, wallet, style, room living|bedroom|majlis|kitchen|bathroom|dining|office|kids, lang, image} → {success, image, free_left, credits, reason}.</summary>
+    [HttpPost("renders"), EnableRateLimiting("render"), RequestSizeLimit(6 * 1024 * 1024)]
+    public Task<RoomReply> Render(RoomInput body, CancellationToken ct) => mediator.Send(new RedesignCommand(body), ct);
+}
+
+/// <summary>Render credits shared by the studio and the room redesign page. Live balance: SignalR /hubs/design → JoinWallet(id) → "wallet".</summary>
+[ApiController, Route("api/wallets")]
+public class WalletsController(ISender mediator) : ControllerBase
+{
+    /// <summary>Credits of a wallet and the free room renders left today for this visitor.</summary>
+    [HttpGet("{wallet}"), EnableRateLimiting("reads")]
+    public Task<WalletReply> Balance(string wallet, [FromQuery] string? sessionId, CancellationToken ct) => mediator.Send(new WalletQuery(wallet, sessionId), ct);
+
+    /// <summary>Buy a pack (p10 29 SAR / 10, p30 69 / 30, p100 179 / 100, VAT included): {wallet, pack, email, lang, returnUrl} → {success, payUrl, purchaseId}.</summary>
+    [HttpPost("purchases"), EnableRateLimiting("forms")]
+    public Task<PurchaseReply> Buy(PurchaseInput body, CancellationToken ct) => mediator.Send(new BuyPackCommand(body), ct);
+}
+
+/// <summary>Claude for the plan designer (/plan/).</summary>
+[ApiController, Route("api/plan-ai")]
+public class PlanAiController(ISender mediator) : ControllerBase
+{
+    /// <summary>
+    /// kind brief: {text, lang, region, brief} → {success, patch, reply}; kind image: {image, knownWidth, lang} → {success, width, depth, rooms, notes}.
+    /// reason: limit | empty | image | ai | parse | unreadable.
+    /// </summary>
+    [HttpPost, EnableRateLimiting("ai"), RequestSizeLimit(8 * 1024 * 1024)]
+    public Task<PlanAiReply> Ask(PlanAiInput body, CancellationToken ct) => mediator.Send(new PlanAiCommand(body), ct);
 }
