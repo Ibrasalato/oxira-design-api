@@ -4,10 +4,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Oxira.Design.Api.Infrastructure;
 using Oxira.Design.Application.Common;
+using Microsoft.AspNetCore.Authorization;
+using Oxira.Design.Application.Features.Account;
 using Oxira.Design.Application.Features.Chat;
 using Oxira.Design.Application.Features.Orders;
 using Oxira.Design.Application.Features.Payments;
 using Oxira.Design.Application.Features.PlanAi;
+using Oxira.Design.Application.Features.Public;
 using Oxira.Design.Application.Features.Redesign;
 using Oxira.Design.Application.Features.Renders;
 using Oxira.Design.Infrastructure.Services;
@@ -130,4 +133,88 @@ public class PlanAiController(ISender mediator) : ControllerBase
     /// </summary>
     [HttpPost, EnableRateLimiting("ai"), RequestSizeLimit(8 * 1024 * 1024)]
     public Task<PlanAiReply> Ask(PlanAiInput body, CancellationToken ct) => mediator.Send(new PlanAiCommand(body), ct);
+}
+
+/// <summary>The signed-in Oxira account (Bearer JWT from oxira-web-api): everything the /account/ page shows.</summary>
+[ApiController, Route("api/account"), Authorize]
+public class AccountController(ISender mediator) : ControllerBase
+{
+    /// <summary>Email, designer status (""|pending|active|admin), saved plans, own orders with threads; open and claimed orders for designers.</summary>
+    [HttpGet, EnableRateLimiting("reads")]
+    public Task<AccountView> Load(CancellationToken ct) => mediator.Send(new AccountQuery(), ct);
+}
+
+/// <summary>Saved plans of the signed-in account (≤ 50, ≤ 400 KB each) with share links and the public gallery switch.</summary>
+[ApiController, Route("api/projects"), Authorize]
+public class ProjectsController(ISender mediator) : ControllerBase
+{
+    [HttpGet("{pid}"), EnableRateLimiting("reads")]
+    public Task<ProjectReply> Get(string pid, CancellationToken ct) => mediator.Send(new GetProjectQuery(pid), ct);
+
+    /// <summary>Creates a plan, or updates it when pid is one of yours. Returns pid and share id.</summary>
+    [HttpPost, EnableRateLimiting("reads"), RequestSizeLimit(2 * 1024 * 1024)]
+    public Task<SavedReply> Save(SaveProjectInput body, CancellationToken ct) => mediator.Send(new SaveProjectCommand(body), ct);
+
+    /// <summary>Show or hide the plan in the public gallery (the team is emailed).</summary>
+    [HttpPost("{pid}/publish"), EnableRateLimiting("forms")]
+    public Task<PublishReply> Publish(string pid, PublishInput body, CancellationToken ct) => mediator.Send(new PublishProjectCommand(pid, body.Public), ct);
+
+    [HttpDelete("{pid}")]
+    public Task<Reply> Delete(string pid, CancellationToken ct) => mediator.Send(new DeleteProjectCommand(pid), ct);
+}
+
+/// <summary>An order's thread, the designer portal (claim, deliver) and the client's rating. Live: SignalR "order" events.</summary>
+[ApiController, Route("api/orders/{id:int}"), Authorize]
+public class OrderWorkController(ISender mediator) : ControllerBase
+{
+    /// <summary>A message to the other side (client ↔ designer or team); they get an email.</summary>
+    [HttpPost("comments"), EnableRateLimiting("forms")]
+    public Task<Reply> Comment(int id, CommentInput body, CancellationToken ct) => mediator.Send(new CommentCommand(id, body.Text), ct);
+
+    /// <summary>Designers: take an open order (first one wins; status becomes progress).</summary>
+    [HttpPost("claim"), EnableRateLimiting("forms")]
+    public Task<Reply> Claim(int id, CancellationToken ct) => mediator.Send(new ClaimOrderCommand(id), ct);
+
+    /// <summary>The client rates a delivered order (1–5, review ≤ 1000 characters).</summary>
+    [HttpPost("rating"), EnableRateLimiting("forms")]
+    public Task<Reply> Rate(int id, RateInput body, CancellationToken ct) => mediator.Send(new RateOrderCommand(id, body.Rating, body.Review), ct);
+
+    /// <summary>The order's designer sends the files (multipart: note + files, ≤ 20 MB); the client gets them by email, status delivered.</summary>
+    [HttpPost("delivery"), EnableRateLimiting("forms"), RequestSizeLimit(26 * 1024 * 1024), RequestFormLimits(MultipartBodyLengthLimit = 26 * 1024 * 1024)]
+    [Consumes("multipart/form-data")]
+    public async Task<Reply> Deliver(int id, CancellationToken ct)
+    {
+        var (fields, files) = await Forms.ReadAsync(Request, 24 * 1024 * 1024, ct);
+        return await mediator.Send(new DeliverCommand(id, fields.GetValueOrDefault("note"), files), ct);
+    }
+}
+
+/// <summary>The public designer directory, and applications to join.</summary>
+[ApiController, Route("api/designers")]
+public class DesignersController(ISender mediator) : ControllerBase
+{
+    /// <summary>Active designers with their rating and recent reviews (no emails).</summary>
+    [HttpGet, EnableRateLimiting("reads")]
+    public Task<ListReply<DesignerCard>> List(CancellationToken ct) => mediator.Send(new DesignersQuery(), ct);
+
+    /// <summary>The signed-in account applies as a designer (status pending until the team sets it active).</summary>
+    [HttpPost("apply"), Authorize, EnableRateLimiting("forms")]
+    public Task<Reply> Apply(ApplyInput body, CancellationToken ct) => mediator.Send(new ApplyDesignerCommand(body), ct);
+}
+
+/// <summary>Public plan pages.</summary>
+[ApiController, Route("api")]
+public class PublicController(ISender mediator) : ControllerBase
+{
+    /// <summary>A plan shared by link (/plan/?s=…), read-only.</summary>
+    [HttpGet("share/{s}"), EnableRateLimiting("reads")]
+    public Task<SharedPlanReply> Shared(string s, CancellationToken ct) => mediator.Send(new SharedPlanQuery(s), ct);
+
+    /// <summary>The 36 newest published plans.</summary>
+    [HttpGet("gallery"), EnableRateLimiting("reads")]
+    public Task<ListReply<GalleryItem>> Gallery(CancellationToken ct) => mediator.Send(new GalleryQuery(), ct);
+
+    /// <summary>Oxira Design Pro waitlist: {email, plan, role, lang, country, company_website}.</summary>
+    [HttpPost("waitlist"), EnableRateLimiting("forms")]
+    public Task<Reply> Waitlist(WaitlistInput body, CancellationToken ct) => mediator.Send(new JoinWaitlistCommand(body), ct);
 }
